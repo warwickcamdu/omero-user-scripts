@@ -6,6 +6,8 @@ import omero.util.script_utils as script_utils
 import numpy as np
 from skimage.feature import peak_local_max
 from scipy import optimize
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 '''
 To analyse PSFs to quality check microscopes
 '''
@@ -97,7 +99,7 @@ def fitBeads(peaks, image_stack, size):
     return fit
 
 
-def getPeaks(image, script_params):
+def getPeaks(image, script_params, conn):
     '''
     Load the image and process
     '''
@@ -122,7 +124,17 @@ def getPeaks(image, script_params):
     image_stack = image_stack[size['x'] // 2 - r:size['x'] // 2 + r,
                               size['y'] // 2 - r:size['y'] // 2 + r, :]
     image_MIP = np.max(image_stack, axis=2)
-
+    with PdfPages('foo.pdf') as pdf:
+        plt.figure(figsize=(3,3))
+        plt.imshow(image_MIP)
+        pdf.savefig()
+        plt.close()
+    # create the original file and file annotation (uploads the file etc.)
+    namespace = "plots.to.pdf"
+    file_ann = conn.createFileAnnfromLocalFile(
+        'foo.pdf', mimetype="text/plain", ns=namespace, desc=None)
+    image.linkAnnotation(file_ann)
+    
     # Comparison between image_max and im to find coordinates of local maxima
     peaks = peak_local_max(image_MIP, min_distance=min_distance,
                            threshold_abs=threshold)
@@ -203,12 +215,12 @@ def runScript():
                                         grouping="06",
                                         description="For peak finding \
                                                      algorithm"),
-                            scripts.Long("NA", optional=False, grouping="06",
+                            scripts.Float("NA", optional=False, grouping="06",
                                          description="NA"),
-                            scripts.Long("Wavelength", optional=False,
+                            scripts.Float("Wavelength", optional=False,
                                          grouping="06",
                                          description="Wavelength"),
-                            version=0.0,
+                            version="0.0",
                             authors=["Laura Cooper and Claire Mitchell",
                                      "CAMDU"],
                             institutions=["University of Warwick"],
@@ -220,7 +232,7 @@ def runScript():
         images = getImages(conn, script_params)
 
         for image in images:
-            peaks, image_stack, size = getPeaks(image, script_params)
+            peaks, image_stack, size = getPeaks(image, script_params, conn)
             fit = fitBeads(peaks, image_stack, size)
 
         xpx = image.getPixelSizeX()
