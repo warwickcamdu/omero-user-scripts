@@ -25,12 +25,11 @@ def gaussian(x, a, b, c):
     return a*np.exp(-np.power(x - b, 2)/(2*np.power(c, 2)))
 
 
-def fitBeads(peaks, image_stack, size):
+def fitBeads(peaks, image_stack, size, crop):
     '''
     Now we will crop out each bead and find the maximum position. Then we fit a
     Gaussian to each dimension from the maximum value.
     '''
-    crop = 13
     # initialise our array
     fit = np.zeros((3, 6, len(peaks)))
     xy_pts = np.linspace(start=0, stop=crop*2, num=crop*2 + 1)
@@ -124,21 +123,26 @@ def getPeaks(image, script_params, conn):
     image_stack = image_stack[size['x'] // 2 - r:size['x'] // 2 + r,
                               size['y'] // 2 - r:size['y'] // 2 + r, :]
     image_MIP = np.max(image_stack, axis=2)
-    with PdfPages('foo.pdf') as pdf:
-        plt.figure(figsize=(3,3))
-        plt.imshow(image_MIP)
-        pdf.savefig()
-        plt.close()
-    # create the original file and file annotation (uploads the file etc.)
-    namespace = "plots.to.pdf"
-    file_ann = conn.createFileAnnfromLocalFile(
-        'foo.pdf', mimetype="text/plain", ns=namespace, desc=None)
-    image.linkAnnotation(file_ann)
+
+    fig0 = plt.figure(figsize=(3, 3))
+    plt.imshow(image_MIP)
 
     # Comparison between image_max and im to find coordinates of local maxima
     peaks = peak_local_max(image_MIP, min_distance=min_distance,
                            threshold_abs=threshold)
     # If the images show poor peak detection, adjust threshold_abs accordingly.
+    # display results
+    fig1, axes = plt.subplots(1, 2, sharex=True, sharey=True)
+    ax = axes.ravel()
+    ax[0].imshow(image_MIP, cmap=plt.cm.gray)
+    ax[0].axis('off')
+    ax[0].set_title('Beads')
+
+    ax[1].imshow(image_MIP, cmap=plt.cm.gray)
+    ax[1].autoscale(False)
+    ax[1].plot(peaks[:, 1], peaks[:, 0], 'r.')
+    ax[1].axis('off')
+    ax[1].set_title('Found peaks')
 
     Flag = np.zeros(len(peaks))
     for i in range(0, len(peaks)):
@@ -158,8 +162,16 @@ def getPeaks(image, script_params, conn):
 
     # Remove those peaks.
     peaks = peaks[Flag == 0]
+    fig2, axes1 = plt.subplots(1, 2, sharex=True, sharey=True)
+    ax1 = axes1.ravel()
+    ax1[0].imshow(image_MIP, cmap=plt.cm.gray)
+    ax1[0].set_title('Beads')
 
-    return peaks, image_stack, size
+    ax1[1].imshow(image_MIP, cmap=plt.cm.gray)
+    ax1[1].autoscale(False)
+    ax1[1].plot(peaks[:, 1], peaks[:, 0], 'r.')
+    ax1[1].set_title('Found peaks')
+    return peaks, image_stack, size, fig0, fig1, fig2
 
 
 def getImages(conn, script_params):
@@ -188,52 +200,43 @@ def getImages(conn, script_params):
 
 def runScript():
     dataTypes = [rstring('Dataset'), rstring('Image')]
-    client = scripts.client("PSF_Distiller.py",
-                            """Analyse point spread function, return FWHM""",
-                            scripts.String("Data_Type", optional=False,
-                                           grouping="01", values=dataTypes,
-                                           default="Image"),
-                            scripts.List("IDs", optional=False,
-                                         grouping="02",
-                                         description="""IDs of the images to
-                                         project""").ofType(rlong(0)),
-                            scripts.Int("Channel", optional=False,
-                                        grouping="03", default=0,
-                                        description="Enter one channel"),
-                            scripts.Int("Time_Point", optional=False,
-                                        grouping="04", default=0,
-                                        description="Enter one time point"),
-                            scripts.Int("Subsize", optional=False,
-                                        grouping="05",
-                                        description="Enter size of region to \
-                                                    analyse"),
-                            scripts.Int("Min_Distance", optional=False,
-                                        grouping="06",
-                                        description="For peak finding \
-                                                     algorithm"),
-                            scripts.Int("Threshold", optional=False,
-                                        grouping="06",
-                                        description="For peak finding \
-                                                     algorithm"),
-                            scripts.Float("NA", optional=False, grouping="06",
-                                         description="NA"),
-                            scripts.Float("Wavelength", optional=False,
-                                         grouping="06",
-                                         description="Wavelength"),
-                            version="0.0",
-                            authors=["Laura Cooper and Claire Mitchell",
-                                     "CAMDU"],
-                            institutions=["University of Warwick"],
-                            contact="camdu@warwick.ac.uk"
-                            )
+    client = scripts.client(
+        "PSF_Distiller.py", """Analyse point spread function, return FWHM""",
+        scripts.String("Data_Type", optional=False, grouping="01",
+                       values=dataTypes, default="Image"),
+        scripts.List("IDs", optional=False, grouping="02",
+                     description="""IDs of the images to project"""
+                     ).ofType(rlong(0)),
+        scripts.Int("Channel", optional=False, grouping="03", default=0,
+                    description="Enter one channel"),
+        scripts.Int("Time_Point", optional=False, grouping="04", default=0,
+                    description="Enter one time point"),
+        scripts.Int("Subsize", optional=False, grouping="05",
+                    description="Enter size of region to analyse"),
+        scripts.Int("Min_Distance", optional=False, grouping="06",
+                    description="For peak finding algorithm"),
+        scripts.Float("Crop", optional=False, grouping="07",
+                      description="For peak finding algorithm"),
+        scripts.Int("Threshold", optional=False, grouping="08",
+                    description="For peak finding algorithm"),
+        scripts.Float("NA", optional=False, grouping="09", description="NA"),
+        scripts.Float("Wavelength", optional=False, grouping="10",
+                      description="Wavelength"),
+        version="0.0",
+        authors=["Laura Cooper and Claire Mitchell", "CAMDU"],
+                institutions=["University of Warwick"],
+                contact="camdu@warwick.ac.uk"
+        )
     try:
         conn = BlitzGateway(client_obj=client)
         script_params = client.getInputs(unwrap=True)
         images = getImages(conn, script_params)
 
         for image in images:
-            peaks, image_stack, size = getPeaks(image, script_params, conn)
-            fit = fitBeads(peaks, image_stack, size)
+            peaks, image_stack, size, MipFig, peak1Fig, peak2Fig = getPeaks(
+                image, script_params, conn)
+            fit = fitBeads(peaks, image_stack, size,
+                           script_params["Wavelength"])
 
         xpx = image.getPixelSizeX()
         ypx = image.getPixelSizeY()
@@ -253,7 +256,67 @@ def runScript():
         # convert to pixels
         zres = 2 * script_params["Wavelength"] / (script_params["NA"] ** 2)
 
+        fig, axes = plt.subplots(3, 3, sharey=True)
+
+        for i in range(0, len(peaks)):
+            # crop out bead
+            sub = image_stack[
+                peaks[i, 0] - script_params["Crop"]:
+                    peaks[i, 0]+script_params["Crop"]+1,
+                peaks[i, 1]-script_params["Crop"]:
+                    peaks[i, 1]+script_params["Crop"]+1, :]
+            # remove background
+            sub = sub - np.mean(sub[0:5, 0:5, 0])
+            # find the maximum pixel
+            maxv = np.amax(sub)
+            maxpx = np.where(sub == maxv)
+            # find each axis of the max pixel
+            x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
+            y_gauss = sub[maxpx[0], :, maxpx[2]][0]
+            z_gauss = sub[maxpx[0], maxpx[1], :][0]
+            # plot
+            axes[0, 0].plot(x_gauss)
+            axes[0, 1].plot(y_gauss)
+            axes[0, 2].plot(z_gauss)
+            # read the fitted parameters to an array
+            xpars = fit[0, 0:3, i]
+            ypars = fit[1, 0:3, i]
+            zpars = fit[2, 0:3, i]
+
+            xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
+                                 num=script_params["Crop"]*2 + 1)
+            z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
+
+            # Calculate the residuals
+            xres = x_gauss - gaussian(xy_pts, *xpars)
+            yres = y_gauss - gaussian(xy_pts, *ypars)
+            zres = z_gauss - gaussian(z_pts, *zpars)
+
+            # plot the fit results
+            axes[1, 0].plot(gaussian(xy_pts, *xpars))
+            axes[1, 1].plot(gaussian(xy_pts, *ypars))
+            axes[1, 2].plot(gaussian(z_pts, *zpars))
+
+            # plot the residuals
+            axes[2, 0].plot(xres)
+            axes[2, 1].plot(yres)
+            axes[2, 2].plot(zres)
+
         print(x_r, y_r, z_r, xres, zres)
+
+        # Save figures to file:
+        pdf = PdfPages('foo.pdf')
+        pdf.savefig(MipFig)
+        pdf.savefig(peak1Fig)
+        pdf.savefig(peak2Fig)
+        pdf.savefig(fig)
+        pdf.close()
+
+        # create the original file and file annotation (uploads the file etc.)
+        namespace = "plots.to.pdf"
+        file_ann = conn.createFileAnnfromLocalFile(
+            'foo.pdf', mimetype="text/plain", ns=namespace, desc=None)
+        image.linkAnnotation(file_ann)
 
     finally:
         # Cleanup
