@@ -208,11 +208,11 @@ def runScript():
                             scripts.Long("Wavelength", optional=False,
                                          grouping="06",
                                          description="Wavelength"),
-                            version=0.0,
-                            authors=["Laura Cooper and Claire Mitchell",
-                                     "CAMDU"],
-                            institutions=["University of Warwick"],
-                            contact="camdu@warwick.ac.uk"
+                            #version=0.0,
+                            #authors=["Laura Cooper and Claire Mitchell",
+                            #         "CAMDU"],
+                            #institutions=["University of Warwick"],
+                            #contact="camdu@warwick.ac.uk"
                             )
     try:
         conn = BlitzGateway(client_obj=client)
