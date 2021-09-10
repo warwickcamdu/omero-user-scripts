@@ -1,6 +1,6 @@
 # import omero
 import omero.scripts as scripts
-from omero.gateway import BlitzGateway
+from omero.gateway import BlitzGateway, FileAnnotationWrapper
 from omero.rtypes import rlong, rstring  # , robject
 import omero.util.script_utils as script_utils
 import numpy as np
@@ -8,6 +8,8 @@ from skimage.feature import peak_local_max
 from scipy import optimize
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from datetime import date
+import pandas as pd
 '''
 To analyse PSFs to quality check microscopes
 '''
@@ -95,7 +97,7 @@ def fitBeads(peaks, image_stack, size, crop):
     fit = fit[:, :, iqr]
     peaks = peaks[iqr]
 
-    return fit
+    return fit, peaks
 
 
 def getPeaks(image, script_params, conn):
@@ -198,29 +200,53 @@ def getImages(conn, script_params):
     return images
 
 
+def saveResultsToProject(scope, conn, image, Rayleigh):
+    dataset = conn.getObject("Dataset", image.getParent().getId())
+    project = conn.getObject("Project", dataset.getParent().getId())
+    namespace = "psf.results"
+    for ann in project.listAnnotations(ns=namespace):
+        if isinstance(ann, FileAnnotationWrapper):
+            
+
+    df = pd.DataFrame({'Date': [date.today()],
+                       'Rayleigh x': [Rayleigh['x']],
+                       'Rayleigh y': [Rayleigh['y']],
+                       'Rayleigh z': [Rayleigh['z']]}
+                       )
+
+    # create the original file and file annotation (uploads the file)
+    filename = scope + ".csv"
+    namespace = "psf.results"
+    file_ann = conn.createFileAnnfromLocalFile(
+                filename, mimetype="text/plain", ns=namespace, desc=None)
+    image.linkAnnotation(file_ann)
+
+
 def runScript():
     dataTypes = [rstring('Dataset'), rstring('Image')]
     client = scripts.client(
         "PSF_Distiller.py", """Analyse point spread function, return FWHM""",
         scripts.String("Data_Type", optional=False, grouping="01",
                        values=dataTypes, default="Image"),
-        scripts.List("IDs", optional=False, grouping="02",
+        scripts.String("Microscope", optional=False, grouping="02",
+                       values=dataTypes, default="Image"),
+        scripts.List("IDs", optional=False, grouping="03",
                      description="""IDs of the images to project"""
                      ).ofType(rlong(0)),
-        scripts.Int("Channel", optional=False, grouping="03", default=0,
+        scripts.Int("Channel", optional=False, grouping="04", default=0,
                     description="Enter one channel"),
-        scripts.Int("Time_Point", optional=False, grouping="04", default=0,
+        scripts.Int("Time_Point", optional=False, grouping="05", default=0,
                     description="Enter one time point"),
-        scripts.Int("Subsize", optional=False, grouping="05",
+        scripts.Int("Subsize", optional=False, grouping="06",
                     description="Enter size of region to analyse"),
-        scripts.Int("Min_Distance", optional=False, grouping="06",
+        scripts.Int("Min_Distance", optional=False, grouping="07",
                     description="For peak finding algorithm"),
-        scripts.Float("Crop", optional=False, grouping="07",
-                      description="For peak finding algorithm"),
-        scripts.Int("Threshold", optional=False, grouping="08",
+        scripts.Int("Crop", optional=False, grouping="08",
                     description="For peak finding algorithm"),
-        scripts.Float("NA", optional=False, grouping="09", description="NA"),
-        scripts.Float("Wavelength", optional=False, grouping="10",
+        scripts.Int("Threshold", optional=False, grouping="09",
+                    description="For peak finding algorithm"),
+        scripts.Float("NA", optional=False, grouping="10", description="NA"),
+        scripts.Float("Wavelength", optional=False, grouping="11",
                       description="Wavelength"),
         version="0.0",
         authors=["Laura Cooper and Claire Mitchell", "CAMDU"],
@@ -235,88 +261,100 @@ def runScript():
         for image in images:
             peaks, image_stack, size, MipFig, peak1Fig, peak2Fig = getPeaks(
                 image, script_params, conn)
-            fit = fitBeads(peaks, image_stack, size,
-                           script_params["Wavelength"])
+            fit, peaks = fitBeads(peaks, image_stack,
+                                  size, script_params["Crop"])
 
-        xpx = image.getPixelSizeX()
-        ypx = image.getPixelSizeY()
-        zpx = image.getPixelSizeZ()
+            xpx = image.getPixelSizeX()
+            ypx = image.getPixelSizeY()
+            zpx = image.getPixelSizeZ()
 
-        # Now we can collect the standard deviations of each bead in all
-        # 3 dimensions and convert to Rayleigh range.
-        # FWHM = standard deviation * 2 * sqrt(2 * ln(2))
-        # Rayleigh range = FWHM * 1.1853
-        K = 2*np.sqrt(2*np.log(2))*1.1853
-        x_r = np.mean(fit[0, 2, :]*K*xpx)
-        y_r = np.mean(fit[1, 2, :]*K*ypx)
-        z_r = np.mean(fit[2, 2, :]*K*zpx)
+            # Now we can collect the standard deviations of each bead in all
+            # 3 dimensions and convert to Rayleigh range.
+            # FWHM = standard deviation * 2 * sqrt(2 * ln(2))
+            # Rayleigh range = FWHM * 1.1853
+            K = 2*np.sqrt(2*np.log(2))*1.1853
+            Rayleigh = {}
+            Rayleigh['x'] = np.mean(fit[0, 2, :]*K*xpx)
+            Rayleigh['y'] = np.mean(fit[1, 2, :]*K*ypx)
+            Rayleigh['z'] = np.mean(fit[2, 2, :]*K*zpx)
 
-        # expected gaussian size
-        xres = 0.61 * script_params["Wavelength"] / script_params["NA"]
-        # convert to pixels
-        zres = 2 * script_params["Wavelength"] / (script_params["NA"] ** 2)
+            # expected gaussian size
+            xres = 0.61 * script_params["Wavelength"] / script_params["NA"]
+            # convert to pixels
+            zres = 2 * script_params["Wavelength"] / (script_params["NA"] ** 2)
 
-        fig, axes = plt.subplots(3, 3, sharey=True)
+            fig, axes = plt.subplots(3, 3, sharey=True)
 
-        for i in range(0, len(peaks)):
-            # crop out bead
-            sub = image_stack[
-                peaks[i, 0] - script_params["Crop"]:
-                    peaks[i, 0]+script_params["Crop"]+1,
-                peaks[i, 1]-script_params["Crop"]:
-                    peaks[i, 1]+script_params["Crop"]+1, :]
-            # remove background
-            sub = sub - np.mean(sub[0:5, 0:5, 0])
-            # find the maximum pixel
-            maxv = np.amax(sub)
-            maxpx = np.where(sub == maxv)
-            # find each axis of the max pixel
-            x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
-            y_gauss = sub[maxpx[0], :, maxpx[2]][0]
-            z_gauss = sub[maxpx[0], maxpx[1], :][0]
-            # plot
-            axes[0, 0].plot(x_gauss)
-            axes[0, 1].plot(y_gauss)
-            axes[0, 2].plot(z_gauss)
-            # read the fitted parameters to an array
-            xpars = fit[0, 0:3, i]
-            ypars = fit[1, 0:3, i]
-            zpars = fit[2, 0:3, i]
+            for i in range(0, len(peaks)):
+                # crop out bead
+                sub = image_stack[
+                    peaks[i, 0] - script_params["Crop"]:
+                        peaks[i, 0] + script_params["Crop"] + 1,
+                    peaks[i, 1] - script_params["Crop"]:
+                        peaks[i, 1] + script_params["Crop"] + 1, :]
+                # remove background
+                sub = sub - np.mean(sub[0:5, 0:5, 0])
+                # find the maximum pixel
+                maxv = np.amax(sub)
+                maxpx = np.where(sub == maxv)
+                # find each axis of the max pixel
+                x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
+                y_gauss = sub[maxpx[0], :, maxpx[2]][0]
+                z_gauss = sub[maxpx[0], maxpx[1], :][0]
+                # plot
+                axes[0, 0].plot(x_gauss)
+                axes[0, 1].plot(y_gauss)
+                axes[0, 2].plot(z_gauss)
+                # read the fitted parameters to an array
+                xpars = fit[0, 0:3, i]
+                ypars = fit[1, 0:3, i]
+                zpars = fit[2, 0:3, i]
 
-            xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
-                                 num=script_params["Crop"]*2 + 1)
-            z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
+                xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
+                                     num=script_params["Crop"]*2 + 1)
+                z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
 
-            # Calculate the residuals
-            xres = x_gauss - gaussian(xy_pts, *xpars)
-            yres = y_gauss - gaussian(xy_pts, *ypars)
-            zres = z_gauss - gaussian(z_pts, *zpars)
+                # Calculate the residuals
+                xres = x_gauss - gaussian(xy_pts, *xpars)
+                yres = y_gauss - gaussian(xy_pts, *ypars)
+                zres = z_gauss - gaussian(z_pts, *zpars)
 
-            # plot the fit results
-            axes[1, 0].plot(gaussian(xy_pts, *xpars))
-            axes[1, 1].plot(gaussian(xy_pts, *ypars))
-            axes[1, 2].plot(gaussian(z_pts, *zpars))
+                # plot the fit results
+                axes[1, 0].plot(gaussian(xy_pts, *xpars))
+                axes[1, 1].plot(gaussian(xy_pts, *ypars))
+                axes[1, 2].plot(gaussian(z_pts, *zpars))
 
-            # plot the residuals
-            axes[2, 0].plot(xres)
-            axes[2, 1].plot(yres)
-            axes[2, 2].plot(zres)
+                # plot the residuals
+                axes[2, 0].plot(xres)
+                axes[2, 1].plot(yres)
+                axes[2, 2].plot(zres)
 
-        print(x_r, y_r, z_r, xres, zres)
+            print(xres, zres)
 
-        # Save figures to file:
-        pdf = PdfPages('foo.pdf')
-        pdf.savefig(MipFig)
-        pdf.savefig(peak1Fig)
-        pdf.savefig(peak2Fig)
-        pdf.savefig(fig)
-        pdf.close()
+            firstPage = plt.figure(figsize=(11.9, 8.27))
+            firstPage.clf()
+            txt = "Results:\n Rayleigh['x']:%s,\n Rayleigh['y']:%s,\n \
+            Rayleigh['z']:%s" % (Rayleigh['x'], Rayleigh['y'], Rayleigh['z'])
+            firstPage.text(0.5, 0.5, txt, transform=firstPage.transFigure,
+                           size=24, ha="center")
 
-        # create the original file and file annotation (uploads the file etc.)
-        namespace = "plots.to.pdf"
-        file_ann = conn.createFileAnnfromLocalFile(
-            'foo.pdf', mimetype="text/plain", ns=namespace, desc=None)
-        image.linkAnnotation(file_ann)
+            # Save figures to file:
+            fileName = "DistilledPSF_%s.pdf" % (date.today())
+            pdf = PdfPages(fileName)
+            pdf.savefig(firstPage)
+            pdf.savefig(MipFig)
+            pdf.savefig(peak1Fig)
+            pdf.savefig(peak2Fig)
+            pdf.savefig(fig)
+            pdf.close()
+
+            # create the original file and file annotation (uploads the file)
+            namespace = "plots.to.pdf"
+            file_ann = conn.createFileAnnfromLocalFile(
+                fileName, mimetype="text/plain", ns=namespace, desc=None)
+            image.linkAnnotation(file_ann)
+
+            saveResultsToProject(script_params["Microscope"], conn, image, Rayleigh)
 
     finally:
         # Cleanup
