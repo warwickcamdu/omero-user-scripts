@@ -203,20 +203,28 @@ def getImages(conn, script_params):
 def saveResultsToProject(scope, conn, image, Rayleigh):
     dataset = conn.getObject("Dataset", image.getParent().getId())
     project = conn.getObject("Project", dataset.getParent().getId())
+    filename = scope + ".csv"
     namespace = "psf.results"
     for ann in project.listAnnotations(ns=namespace):
         if isinstance(ann, FileAnnotationWrapper):
-            
-
-    df = pd.DataFrame({'Date': [date.today()],
-                       'Rayleigh x': [Rayleigh['x']],
-                       'Rayleigh y': [Rayleigh['y']],
-                       'Rayleigh z': [Rayleigh['z']]}
-                       )
-
+            if filename == ann.getFile().getName():
+                # Download file
+                # Read file
+                # Append file with:
+                df = pd.DataFrame({'Date': [date.today()],
+                                   'Rayleigh x': [Rayleigh['x']],
+                                   'Rayleigh y': [Rayleigh['y']],
+                                   'Rayleigh z': [Rayleigh['z']]}
+                                  )
+        else:
+            # Create new file
+            df = pd.DataFrame({'Date': [date.today()],
+                               'Rayleigh x': [Rayleigh['x']],
+                               'Rayleigh y': [Rayleigh['y']],
+                               'Rayleigh z': [Rayleigh['z']]}
+                              )
+    df.to_csv(filename, index=False)
     # create the original file and file annotation (uploads the file)
-    filename = scope + ".csv"
-    namespace = "psf.results"
     file_ann = conn.createFileAnnfromLocalFile(
                 filename, mimetype="text/plain", ns=namespace, desc=None)
     image.linkAnnotation(file_ann)
@@ -354,7 +362,8 @@ def runScript():
                 fileName, mimetype="text/plain", ns=namespace, desc=None)
             image.linkAnnotation(file_ann)
 
-            saveResultsToProject(script_params["Microscope"], conn, image, Rayleigh)
+            saveResultsToProject(
+                script_params["Microscope"], conn, image, Rayleigh)
 
     finally:
         # Cleanup
