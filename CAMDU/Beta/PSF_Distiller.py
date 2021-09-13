@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import date
 import pandas as pd
+import os
 '''
 To analyse PSFs to quality check microscopes
 '''
@@ -202,32 +203,55 @@ def getImages(conn, script_params):
 
 def saveResultsToProject(scope, conn, image, Rayleigh):
     dataset = conn.getObject("Dataset", image.getParent().getId())
+    print(dataset.getId())
     project = conn.getObject("Project", dataset.getParent().getId())
+    print(project.getId())
     filename = scope + ".csv"
     namespace = "psf.results"
+    df = None
     for ann in project.listAnnotations(ns=namespace):
         if isinstance(ann, FileAnnotationWrapper):
             if filename == ann.getFile().getName():
                 # Download file
-                # Read file
-                # Append file with:
-                df = pd.DataFrame({'Date': [date.today()],
-                                   'Rayleigh x': [Rayleigh['x']],
-                                   'Rayleigh y': [Rayleigh['y']],
-                                   'Rayleigh z': [Rayleigh['z']]}
-                                  )
-        else:
-            # Create new file
-            df = pd.DataFrame({'Date': [date.today()],
-                               'Rayleigh x': [Rayleigh['x']],
-                               'Rayleigh y': [Rayleigh['y']],
-                               'Rayleigh z': [Rayleigh['z']]}
-                              )
+                # make location to download file
+                path = os.path.join(os.path.dirname(__file__), "download")
+                if not os.path.exists(path):
+                    os.makedirs(path)
+                file_path = os.path.join(path, ann.getFile().getName())
+                # Read file into dataframe
+                with open(str(file_path), 'wb') as f:
+                    print("\nDownloading file to", file_path, "...")
+                    for chunk in ann.getFileInChunks():
+                        f.write(chunk)
+                df = pd.read_csv(file_path)
+                # If today's date already has results
+                if any(date.today() == df):
+                    # Replace row
+                    df.loc[
+                           df['Date'] == str(date.today())
+                           ] = date.today(), Rayleigh['x'], Rayleigh['y'], Rayleigh['z']
+                else:
+                    # Append file with:
+                    new_df = pd.DataFrame({'Date': [date.today()],
+                                           'Rayleigh x': [Rayleigh['x']],
+                                           'Rayleigh y': [Rayleigh['y']],
+                                           'Rayleigh z': [Rayleigh['z']]}
+                                          )
+                    df = df.append(new_df)
+    if df is None:
+        # Create new file
+        df = pd.DataFrame({'Date': [date.today()],
+                           'Rayleigh x': [Rayleigh['x']],
+                           'Rayleigh y': [Rayleigh['y']],
+                           'Rayleigh z': [Rayleigh['z']]}
+                          )
     df.to_csv(filename, index=False)
     # create the original file and file annotation (uploads the file)
     file_ann = conn.createFileAnnfromLocalFile(
                 filename, mimetype="text/plain", ns=namespace, desc=None)
-    image.linkAnnotation(file_ann)
+    project.linkAnnotation(file_ann)
+
+    return df
 
 
 def runScript():
@@ -237,7 +261,7 @@ def runScript():
         scripts.String("Data_Type", optional=False, grouping="01",
                        values=dataTypes, default="Image"),
         scripts.String("Microscope", optional=False, grouping="02",
-                       values=dataTypes, default="Image"),
+                       default="DV2"),
         scripts.List("IDs", optional=False, grouping="03",
                      description="""IDs of the images to project"""
                      ).ofType(rlong(0)),
@@ -258,8 +282,8 @@ def runScript():
                       description="Wavelength"),
         version="0.0",
         authors=["Laura Cooper and Claire Mitchell", "CAMDU"],
-                institutions=["University of Warwick"],
-                contact="camdu@warwick.ac.uk"
+        institutions=["University of Warwick"],
+        contact="camdu@warwick.ac.uk"
         )
     try:
         conn = BlitzGateway(client_obj=client)
@@ -337,14 +361,18 @@ def runScript():
                 axes[2, 1].plot(yres)
                 axes[2, 2].plot(zres)
 
-            print(xres, zres)
-
             firstPage = plt.figure(figsize=(11.9, 8.27))
             firstPage.clf()
-            txt = "Results:\n Rayleigh['x']:%s,\n Rayleigh['y']:%s,\n \
-            Rayleigh['z']:%s" % (Rayleigh['x'], Rayleigh['y'], Rayleigh['z'])
+            txt = "Rayleigh x: %s,\n y: %s,\n z:%s" % (Rayleigh['x'],
+                                                       Rayleigh['y'],
+                                                       Rayleigh['z'])
             firstPage.text(0.5, 0.5, txt, transform=firstPage.transFigure,
                            size=24, ha="center")
+
+            df = saveResultsToProject(
+                script_params["Microscope"], conn, image, Rayleigh)
+            ax = df.plot(x='Date')
+            lastPage = ax.get_figure()
 
             # Save figures to file:
             fileName = "DistilledPSF_%s.pdf" % (date.today())
@@ -354,16 +382,14 @@ def runScript():
             pdf.savefig(peak1Fig)
             pdf.savefig(peak2Fig)
             pdf.savefig(fig)
+            pdf.savefig(lastPage)
             pdf.close()
-
+            plt.close('all')
             # create the original file and file annotation (uploads the file)
             namespace = "plots.to.pdf"
             file_ann = conn.createFileAnnfromLocalFile(
                 fileName, mimetype="text/plain", ns=namespace, desc=None)
             image.linkAnnotation(file_ann)
-
-            saveResultsToProject(
-                script_params["Microscope"], conn, image, Rayleigh)
 
     finally:
         # Cleanup

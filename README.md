@@ -1,6 +1,15 @@
 OMERO User Scripts
 ==================
 
+Intensity_Projection.py: For making intensity projections for either the whole
+images or for ROIs.
+
+PSF_Distiller.py: Quality control for microscopes. Takes a bead image and
+outputs a PDF attached to the image to summaries the results and a .csv file
+attached to the project storing the results over time.
+
+===================
+
 Installation
 ------------
 
