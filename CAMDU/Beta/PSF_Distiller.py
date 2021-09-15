@@ -88,12 +88,15 @@ def fitBeads(peaks, image_stack, size, crop):
     fit = fit[:, :, centre]
     peaks = peaks[centre]
 
-    fs=fit.shape()
+    fs = fit.shape()
     if fs[3] > 10:
         # Remove beads with a standard deviation outside the interquartile range.
-        qx1, qx2 = np.percentile(fit[0, 2, :], 10), np.percentile(fit[0, 2, :], 75)
-        qy1, qy2 = np.percentile(fit[1, 2, :], 10), np.percentile(fit[1, 2, :], 75)
-        qz1, qz2 = np.percentile(fit[2, 2, :], 10), np.percentile(fit[2, 2, :], 75)
+        qx1, qx2 = np.percentile(
+            fit[0, 2, :], 10), np.percentile(fit[0, 2, :], 75)
+        qy1, qy2 = np.percentile(
+            fit[1, 2, :], 10), np.percentile(fit[1, 2, :], 75)
+        qz1, qz2 = np.percentile(
+            fit[2, 2, :], 10), np.percentile(fit[2, 2, :], 75)
 
         iqr = (fit[0, 2, :] > qx1)*(fit[0, 2, :] < qx2)*(fit[1, 2, :] > qy1) * \
             (fit[1, 2, :] < qy2)*(fit[2, 2, :] > qz1)*(fit[2, 2, :] < qz2)
