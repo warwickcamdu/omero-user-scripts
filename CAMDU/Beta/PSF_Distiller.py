@@ -87,10 +87,8 @@ def fitBeads(peaks, image_stack, size, crop):
         (fit[1, 1, :] > crop*0.9)*(fit[1, 1, :] < crop*1.1)
     fit = fit[:, :, centre]
     peaks = peaks[centre]
-
-    fs = fit.shape()
-    if fs[3] > 10:
-        # Remove beads with a standard deviation outside the interquartile range.
+    if len(fit[0, 0, :]) > 10:
+        # Remove beads with a standard deviation outside interquartile range.
         qx1, qx2 = np.percentile(
             fit[0, 2, :], 10), np.percentile(fit[0, 2, :], 75)
         qy1, qy2 = np.percentile(
@@ -206,9 +204,7 @@ def getImages(conn, script_params):
     return images
 
 
-def saveResultsToProject(scope, conn, image, Rayleigh):
-    dataset = conn.getObject("Dataset", image.getParent().getId())
-    print(dataset.getId())
+def saveResultsToProject(scope, conn, dataset, Rayleigh, Wavelength, NA, acDate):
     project = conn.getObject("Project", dataset.getParent().getId())
     print(project.getId())
     filename = scope + ".csv"
@@ -229,15 +225,17 @@ def saveResultsToProject(scope, conn, image, Rayleigh):
                     for chunk in ann.getFileInChunks():
                         f.write(chunk)
                 df = pd.read_csv(file_path)
-                # If today's date already has results
-                if any(date.today() == df):
+                # If acquistion date already has results
+                if any(df['Date'] == acDate):
                     # Replace row
-                    df.loc[
-                           df['Date'] == str(date.today())
-                           ] = date.today(), Rayleigh['x'], Rayleigh['y'], Rayleigh['z']
+                    print(df)
+                    df.loc[df['Date'] == str(
+                        acDate)] = acDate, Wavelength, NA, Rayleigh['x'], Rayleigh['y'], Rayleigh['z']
                 else:
                     # Append file with:
-                    new_df = pd.DataFrame({'Date': [date.today()],
+                    new_df = pd.DataFrame({'Date': [acDate],
+                                           'Wavelength': [Wavelength],
+                                           'Numerical Aperture': [NA],
                                            'Rayleigh x': [Rayleigh['x']],
                                            'Rayleigh y': [Rayleigh['y']],
                                            'Rayleigh z': [Rayleigh['z']]}
@@ -245,7 +243,9 @@ def saveResultsToProject(scope, conn, image, Rayleigh):
                     df = df.append(new_df)
     if df is None:
         # Create new file
-        df = pd.DataFrame({'Date': [date.today()],
+        df = pd.DataFrame({'Date': [acDate],
+                           'Wavelength': [Wavelength],
+                           'Numerical Aperture': [NA],
                            'Rayleigh x': [Rayleigh['x']],
                            'Rayleigh y': [Rayleigh['y']],
                            'Rayleigh z': [Rayleigh['z']]}
@@ -257,6 +257,31 @@ def saveResultsToProject(scope, conn, image, Rayleigh):
     project.linkAnnotation(file_ann)
 
     return df
+
+
+def getMetadata(channel, image):
+    """
+    Get the required values from the metadata
+    """
+    channels = image.getChannels()
+    EmWave = channels[channel].getEmissionWave()
+    try:
+        # SoRa
+        md = image.loadOriginalMetadata()
+        global_metadata = dict(md[1])
+        NA = float(global_metadata['Numerical Aperture'])
+    except KeyError:
+        # DV2
+        NA = image.getInstrument().getObjective()[0].getLensNA().val
+    except UnboundLocalError:
+        print('No NA found')
+
+    pixelSize = [image.getPixelSizeX(), image.getPixelSizeY(),
+                 image.getPixelSizeZ()]
+
+    acDate = image.getAcquisitionDate()
+
+    return EmWave, NA, pixelSize, acDate
 
 
 def runScript():
@@ -282,10 +307,10 @@ def runScript():
                     description="For peak finding algorithm"),
         scripts.Int("Threshold", optional=False, grouping="09",
                     description="For peak finding algorithm"),
-        scripts.Float("NA", optional=False, grouping="10", description="NA"),
-        scripts.Float("Wavelength", optional=False, grouping="11",
-                      description="Wavelength"),
-        version="0.0",
+        # scripts.Float("NA", optional=False, grouping="10", description="NA"),
+        # scripts.Float("Wavelength", optional=False, grouping="11",
+        #              description="Wavelength"),
+        version="0.1",
         authors=["Laura Cooper and Claire Mitchell", "CAMDU"],
         institutions=["University of Warwick"],
         contact="camdu@warwick.ac.uk"
@@ -301,9 +326,9 @@ def runScript():
             fit, peaks = fitBeads(peaks, image_stack,
                                   size, script_params["Crop"])
 
-            xpx = image.getPixelSizeX()
-            ypx = image.getPixelSizeY()
-            zpx = image.getPixelSizeZ()
+            Wavelength, NA, pixelSize, acDate = getMetadata(
+                                                    script_params["Channel"],
+                                                    image)
 
             # Now we can collect the standard deviations of each bead in all
             # 3 dimensions and convert to Rayleigh range.
@@ -311,14 +336,14 @@ def runScript():
             # Rayleigh range = FWHM * 1.1853
             K = 2*np.sqrt(2*np.log(2))*1.1853
             Rayleigh = {}
-            Rayleigh['x'] = np.mean(fit[0, 2, :]*K*xpx)
-            Rayleigh['y'] = np.mean(fit[1, 2, :]*K*ypx)
-            Rayleigh['z'] = np.mean(fit[2, 2, :]*K*zpx)
+            Rayleigh['x'] = np.mean(fit[0, 2, :]*K*pixelSize[0])
+            Rayleigh['y'] = np.mean(fit[1, 2, :]*K*pixelSize[1])
+            Rayleigh['z'] = np.mean(fit[2, 2, :]*K*pixelSize[2])
 
             # expected gaussian size
-            xres = 0.61 * script_params["Wavelength"] / script_params["NA"]
+            xres = 0.61 * Wavelength / NA
             # convert to pixels
-            zres = 2 * script_params["Wavelength"] / (script_params["NA"] ** 2)
+            zres = 2 * Wavelength / NA
 
             fig, axes = plt.subplots(3, 3, sharey=True)
 
@@ -368,16 +393,24 @@ def runScript():
 
             firstPage = plt.figure(figsize=(11.9, 8.27))
             firstPage.clf()
-            txt = "Rayleigh x: %s,\n y: %s,\n z:%s" % (Rayleigh['x'],
-                                                       Rayleigh['y'],
-                                                       Rayleigh['z'])
-            firstPage.text(0.5, 0.5, txt, transform=firstPage.transFigure,
-                           size=24, ha="center")
+            inputs = "Wavelength: %s,\n Numerical Aperture: %s,\n" % (
+                Wavelength, NA)
+            outputs = "Rayleigh x: %s,\n y: %s,\n z:%s" % (
+                Rayleigh['x'], Rayleigh['y'], Rayleigh['z'])
+            firstPage.text(0.5, 0.5, inputs+outputs,
+                           transform=firstPage.transFigure, size=24,
+                           ha="center")
 
-            df = saveResultsToProject(
-                script_params["Microscope"], conn, image, Rayleigh)
-            ax = df.plot(x='Date')
-            lastPage = ax.get_figure()
+            dataset = conn.getObject("Dataset", image.getParent().getId())
+            print(dataset.getId())
+            if dataset.getParent() is not None:
+                df = saveResultsToProject(
+                    script_params["Microscope"], conn, dataset, Rayleigh,
+                    Wavelength, NA, acDate)
+                ax = df.plot(x='Date')
+                lastPage = ax.get_figure()
+            else:
+                print('Image not in a project, not saving results')
 
             # Save figures to file:
             fileName = "DistilledPSF_%s.pdf" % (date.today())
@@ -387,7 +420,8 @@ def runScript():
             pdf.savefig(peak1Fig)
             pdf.savefig(peak2Fig)
             pdf.savefig(fig)
-            pdf.savefig(lastPage)
+            if dataset.getParent() is not None:
+                pdf.savefig(lastPage)
             pdf.close()
             plt.close('all')
             # create the original file and file annotation (uploads the file)
