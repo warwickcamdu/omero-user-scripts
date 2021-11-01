@@ -38,7 +38,6 @@ def fitBeads(peaks, image_stack, size, crop):
     xy_pts = np.linspace(start=0, stop=crop*2, num=crop*2 + 1)
     z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
     b = (-np.inf, np.inf)
-
     for i in range(len(peaks)):
         # crop out bead
         sub = image_stack[peaks[i, 0] - crop:peaks[i, 0] + crop + 1,
@@ -108,7 +107,6 @@ def getPeaks(image, script_params, conn):
     '''
     Load the image and process
     '''
-    r = script_params["Subsize"]
     min_distance = script_params["Min_Distance"]
     threshold = script_params["Threshold"]
     c = script_params["Channel"]
@@ -125,9 +123,6 @@ def getPeaks(image, script_params, conn):
     for i in range(size['z']):
         image_stack[:, :, i] = pixels.getPlane(i, c, t)
 
-    # Make a maximum intensity projection to find initial peaks.
-    image_stack = image_stack[size['x'] // 2 - r:size['x'] // 2 + r,
-                              size['y'] // 2 - r:size['y'] // 2 + r, :]
     image_MIP = np.max(image_stack, axis=2)
 
     fig0 = plt.figure(figsize=(3, 3))
@@ -153,18 +148,18 @@ def getPeaks(image, script_params, conn):
     Flag = np.zeros(len(peaks))
     for i in range(0, len(peaks)):
         # first check if is an edge one
-        if (0 + d < peaks[i, 0] < 2*r - d) and (0 + d < peaks[i, 1] < 2*r - d):
-            for j in range(0, len(peaks)):
-                # ignore if the same coordinate
-                if i != j:
-                    # discard if the peaks are too close together
-                    diff_peaks = {}
-                    diff_peaks[0] = abs(peaks[i, 0] - peaks[j, 0])
-                    diff_peaks[1] = abs(peaks[i, 1] - peaks[j, 1])
-                    if (diff_peaks[0] < d) and (diff_peaks[1] < d):
-                        Flag[i] = 1
-        else:
-            Flag[i] = 1
+        # if (0 + d < peaks[i, 0] < 2*r - d) and (0 + d < peaks[i, 1] < 2*r - d):
+        for j in range(0, len(peaks)):
+            # ignore if the same coordinate
+            if i != j:
+                # discard if the peaks are too close together
+                diff_peaks = {}
+                diff_peaks[0] = abs(peaks[i, 0] - peaks[j, 0])
+                diff_peaks[1] = abs(peaks[i, 1] - peaks[j, 1])
+                if (diff_peaks[0] < d) and (diff_peaks[1] < d):
+                    Flag[i] = 1
+        # else:
+        #    Flag[i] = 1
 
     # Remove those peaks.
     peaks = peaks[Flag == 0]
@@ -299,18 +294,16 @@ def runScript():
                     description="Enter one channel"),
         scripts.Int("Time_Point", optional=False, grouping="05", default=0,
                     description="Enter one time point"),
-        scripts.Int("Subsize", optional=False, grouping="06",
-                    description="Enter size of region to analyse"),
-        scripts.Int("Min_Distance", optional=False, grouping="07",
+        scripts.Int("Min_Distance", optional=False, grouping="06",
                     description="For peak finding algorithm"),
-        scripts.Int("Crop", optional=False, grouping="08",
+        scripts.Int("Crop", optional=False, grouping="07",
                     description="For peak finding algorithm"),
-        scripts.Int("Threshold", optional=False, grouping="09",
+        scripts.Int("Threshold", optional=False, grouping="08",
                     description="For peak finding algorithm"),
         # scripts.Float("NA", optional=False, grouping="10", description="NA"),
         # scripts.Float("Wavelength", optional=False, grouping="11",
         #              description="Wavelength"),
-        version="0.1",
+        version="0.2",
         authors=["Laura Cooper and Claire Mitchell", "CAMDU"],
         institutions=["University of Warwick"],
         contact="camdu@warwick.ac.uk"
@@ -323,112 +316,115 @@ def runScript():
         for image in images:
             peaks, image_stack, size, MipFig, peak1Fig, peak2Fig = getPeaks(
                 image, script_params, conn)
-            fit, peaks = fitBeads(peaks, image_stack,
-                                  size, script_params["Crop"])
-
-            Wavelength, NA, pixelSize, acDate = getMetadata(
-                                                    script_params["Channel"],
-                                                    image)
-
-            # Now we can collect the standard deviations of each bead in all
-            # 3 dimensions and convert to Rayleigh range.
-            # FWHM = standard deviation * 2 * sqrt(2 * ln(2))
-            # Rayleigh range = FWHM * 1.1853
-            K = 2*np.sqrt(2*np.log(2))*1.1853
-            Rayleigh = {}
-            Rayleigh['x'] = np.mean(fit[0, 2, :]*K*pixelSize[0])
-            Rayleigh['y'] = np.mean(fit[1, 2, :]*K*pixelSize[1])
-            Rayleigh['z'] = np.mean(fit[2, 2, :]*K*pixelSize[2])
-
-            # expected gaussian size
-            xres = 0.61 * Wavelength / NA
-            # convert to pixels
-            zres = 2 * Wavelength / NA
-
-            fig, axes = plt.subplots(3, 3, sharey=True)
-
-            for i in range(0, len(peaks)):
-                # crop out bead
-                sub = image_stack[
-                    peaks[i, 0] - script_params["Crop"]:
-                        peaks[i, 0] + script_params["Crop"] + 1,
-                    peaks[i, 1] - script_params["Crop"]:
-                        peaks[i, 1] + script_params["Crop"] + 1, :]
-                # remove background
-                sub = sub - np.mean(sub[0:5, 0:5, 0])
-                # find the maximum pixel
-                maxv = np.amax(sub)
-                maxpx = np.where(sub == maxv)
-                # find each axis of the max pixel
-                x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
-                y_gauss = sub[maxpx[0], :, maxpx[2]][0]
-                z_gauss = sub[maxpx[0], maxpx[1], :][0]
-                # plot
-                axes[0, 0].plot(x_gauss)
-                axes[0, 1].plot(y_gauss)
-                axes[0, 2].plot(z_gauss)
-                # read the fitted parameters to an array
-                xpars = fit[0, 0:3, i]
-                ypars = fit[1, 0:3, i]
-                zpars = fit[2, 0:3, i]
-
-                xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
-                                     num=script_params["Crop"]*2 + 1)
-                z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
-
-                # Calculate the residuals
-                xres = x_gauss - gaussian(xy_pts, *xpars)
-                yres = y_gauss - gaussian(xy_pts, *ypars)
-                zres = z_gauss - gaussian(z_pts, *zpars)
-
-                # plot the fit results
-                axes[1, 0].plot(gaussian(xy_pts, *xpars))
-                axes[1, 1].plot(gaussian(xy_pts, *ypars))
-                axes[1, 2].plot(gaussian(z_pts, *zpars))
-
-                # plot the residuals
-                axes[2, 0].plot(xres)
-                axes[2, 1].plot(yres)
-                axes[2, 2].plot(zres)
-
-            firstPage = plt.figure(figsize=(11.9, 8.27))
-            firstPage.clf()
-            inputs = "Wavelength: %s,\n Numerical Aperture: %s,\n" % (
-                Wavelength, NA)
-            outputs = "Rayleigh x: %s,\n y: %s,\n z:%s" % (
-                Rayleigh['x'], Rayleigh['y'], Rayleigh['z'])
-            firstPage.text(0.5, 0.5, inputs+outputs,
-                           transform=firstPage.transFigure, size=24,
-                           ha="center")
-
-            dataset = conn.getObject("Dataset", image.getParent().getId())
-            print(dataset.getId())
-            if dataset.getParent() is not None:
-                df = saveResultsToProject(
-                    script_params["Microscope"], conn, dataset, Rayleigh,
-                    Wavelength, NA, acDate)
-                ax = df.plot(x='Date')
-                lastPage = ax.get_figure()
+            if not peaks.size:
+                print("No peaks found!")
             else:
-                print('Image not in a project, not saving results')
+                fit, peaks = fitBeads(peaks, image_stack,
+                                      size, script_params["Crop"])
 
-            # Save figures to file:
-            fileName = "DistilledPSF_%s.pdf" % (date.today())
-            pdf = PdfPages(fileName)
-            pdf.savefig(firstPage)
-            pdf.savefig(MipFig)
-            pdf.savefig(peak1Fig)
-            pdf.savefig(peak2Fig)
-            pdf.savefig(fig)
-            if dataset.getParent() is not None:
-                pdf.savefig(lastPage)
-            pdf.close()
-            plt.close('all')
-            # create the original file and file annotation (uploads the file)
-            namespace = "plots.to.pdf"
-            file_ann = conn.createFileAnnfromLocalFile(
-                fileName, mimetype="text/plain", ns=namespace, desc=None)
-            image.linkAnnotation(file_ann)
+                Wavelength, NA, pixelSize, acDate = getMetadata(
+                                                        script_params["Channel"],
+                                                        image)
+
+                # Now we can collect the standard deviations of each bead in all
+                # 3 dimensions and convert to Rayleigh range.
+                # FWHM = standard deviation * 2 * sqrt(2 * ln(2))
+                # Rayleigh range = FWHM * 1.1853
+                K = 2*np.sqrt(2*np.log(2))*1.1853
+                Rayleigh = {}
+                Rayleigh['x'] = np.mean(fit[0, 2, :]*K*pixelSize[0])
+                Rayleigh['y'] = np.mean(fit[1, 2, :]*K*pixelSize[1])
+                Rayleigh['z'] = np.mean(fit[2, 2, :]*K*pixelSize[2])
+
+                # expected gaussian size
+                xres = 0.61 * Wavelength / NA
+                # convert to pixels
+                zres = 2 * Wavelength / NA
+
+                fig, axes = plt.subplots(3, 3, sharey=True)
+
+                for i in range(0, len(peaks)):
+                    # crop out bead
+                    sub = image_stack[
+                        peaks[i, 0] - script_params["Crop"]:
+                            peaks[i, 0] + script_params["Crop"] + 1,
+                        peaks[i, 1] - script_params["Crop"]:
+                            peaks[i, 1] + script_params["Crop"] + 1, :]
+                    # remove background
+                    sub = sub - np.mean(sub[0:5, 0:5, 0])
+                    # find the maximum pixel
+                    maxv = np.amax(sub)
+                    maxpx = np.where(sub == maxv)
+                    # find each axis of the max pixel
+                    x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
+                    y_gauss = sub[maxpx[0], :, maxpx[2]][0]
+                    z_gauss = sub[maxpx[0], maxpx[1], :][0]
+                    # plot
+                    axes[0, 0].plot(x_gauss)
+                    axes[0, 1].plot(y_gauss)
+                    axes[0, 2].plot(z_gauss)
+                    # read the fitted parameters to an array
+                    xpars = fit[0, 0:3, i]
+                    ypars = fit[1, 0:3, i]
+                    zpars = fit[2, 0:3, i]
+
+                    xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
+                                         num=script_params["Crop"]*2 + 1)
+                    z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
+
+                    # Calculate the residuals
+                    xres = x_gauss - gaussian(xy_pts, *xpars)
+                    yres = y_gauss - gaussian(xy_pts, *ypars)
+                    zres = z_gauss - gaussian(z_pts, *zpars)
+
+                    # plot the fit results
+                    axes[1, 0].plot(gaussian(xy_pts, *xpars))
+                    axes[1, 1].plot(gaussian(xy_pts, *ypars))
+                    axes[1, 2].plot(gaussian(z_pts, *zpars))
+
+                    # plot the residuals
+                    axes[2, 0].plot(xres)
+                    axes[2, 1].plot(yres)
+                    axes[2, 2].plot(zres)
+
+                firstPage = plt.figure(figsize=(11.9, 8.27))
+                firstPage.clf()
+                inputs = "Wavelength: %s,\n Numerical Aperture: %s,\n" % (
+                    Wavelength, NA)
+                outputs = "Rayleigh x: %s,\n y: %s,\n z:%s" % (
+                    Rayleigh['x'], Rayleigh['y'], Rayleigh['z'])
+                firstPage.text(0.5, 0.5, inputs+outputs,
+                               transform=firstPage.transFigure, size=24,
+                               ha="center")
+
+                dataset = conn.getObject("Dataset", image.getParent().getId())
+                print(dataset.getId())
+                if dataset.getParent() is not None:
+                    df = saveResultsToProject(
+                        script_params["Microscope"], conn, dataset, Rayleigh,
+                        Wavelength, NA, acDate)
+                    ax = df.plot(x='Date')
+                    lastPage = ax.get_figure()
+                else:
+                    print('Image not in a project, not saving results')
+
+                # Save figures to file:
+                fileName = "DistilledPSF_%s.pdf" % (date.today())
+                pdf = PdfPages(fileName)
+                pdf.savefig(firstPage)
+                pdf.savefig(MipFig)
+                pdf.savefig(peak1Fig)
+                pdf.savefig(peak2Fig)
+                pdf.savefig(fig)
+                if dataset.getParent() is not None:
+                    pdf.savefig(lastPage)
+                pdf.close()
+                plt.close('all')
+                # create the original file and file annotation (uploads the file)
+                namespace = "plots.to.pdf"
+                file_ann = conn.createFileAnnfromLocalFile(
+                    fileName, mimetype="text/plain", ns=namespace, desc=None)
+                image.linkAnnotation(file_ann)
 
     finally:
         # Cleanup
