@@ -2,7 +2,7 @@
 import omero
 import omero.scripts as scripts
 from omero.gateway import BlitzGateway
-from omero.rtypes import rlong
+from omero.rtypes import rlong, rstring
 import pandas as pd
 '''
 Find duplicate images within same dataset and move to project for deletion
@@ -15,12 +15,20 @@ def log(data):
 
 
 def runScript():
+    data_types = [rstring('Dataset')]
     client = scripts.client(
-        "Find_Duplicates.py", """Find duplicate images within same dataset \
-        and move to project for manual deletion""",
+        "Find_Duplicates.py",
+        """
+        Find duplicate images within a dataset and tag with "CAMDU Duplicate"
+        so admin can delete them
+        """,
+        scripts.String(
+            "Data_Type", optional=False, grouping="1",
+            description="Choose Dataset", values=data_types,
+            default="Dataset"),
         scripts.List(
-            "IDs", optional=False, grouping="01",
-            description="""IDs of dataset to check""").ofType(rlong(0)),
+            "IDs", optional=False, grouping="2",
+            description="List of Dataset IDs to process.").ofType(rlong(0)),
         version="0.0",
         authors=["Laura Cooper", "CAMDU"],
         institutions=["University of Warwick"],
@@ -33,7 +41,7 @@ def runScript():
 
         for id in script_params["IDs"]:
             dataset = conn.getObject("Dataset", id)
-            colNames = ['id', 'Name' 'acDate', 'sizeX', 'sizeY', 'sizeZ',
+            colNames = ['id', 'Name', 'acDate', 'sizeX', 'sizeY', 'sizeZ',
                         'sizeT', 'sizeC', 'No. Annotate', 'No. ROI']
             metadata = pd.DataFrame(columns=colNames)
             for image in dataset.listChildren():
@@ -62,8 +70,7 @@ def runScript():
                                                 }, index=[0])
                 metadata = metadata.append(image_data)
             # Remove unique acquisition dates
-            mask = metadata.duplicated(subset=colNames.remove('id'),
-                                       keep=False)
+            mask = metadata.duplicated(subset=colNames[1::], keep='first')
             if not metadata[mask].empty:
                 tag_ann = omero.gateway.TagAnnotationWrapper(conn)
                 tag_ann.setValue("CAMDU Duplicate")
