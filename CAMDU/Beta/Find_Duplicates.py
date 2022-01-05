@@ -33,8 +33,8 @@ def runScript():
 
         for id in script_params["IDs"]:
             dataset = conn.getObject("Dataset", id)
-            colNames = ['id', 'acDate', 'sizeX', 'sizeY', 'sizeZ', 'sizeT',
-                        'sizeC', 'No. Annotate', 'No. ROI']
+            colNames = ['id', 'Name' 'acDate', 'sizeX', 'sizeY', 'sizeZ',
+                        'sizeT', 'sizeC', 'No. Annotate', 'No. ROI']
             metadata = pd.DataFrame(columns=colNames)
             for image in dataset.listChildren():
                 findRois = roi_service.findByImage(image.getId(), None)
@@ -50,6 +50,7 @@ def runScript():
                         anns.append(ann)
 
                 image_data = pd.DataFrame(data={'id': image.getId(),
+                                                'Name': image.getName(),
                                                 'acDate': image.getDate(),
                                                 'sizeX': image.getSizeX(),
                                                 'sizeY': image.getSizeY(),
@@ -57,9 +58,8 @@ def runScript():
                                                 'sizeT': image.getSizeT(),
                                                 'sizeC': image.getSizeC(),
                                                 'No. Annotate': len(anns),
-                                                'No. ROI':  len(roiIds),
-                                                },
-                                          index=[0])
+                                                'No. ROI':  len(roiIds)
+                                                }, index=[0])
                 metadata = metadata.append(image_data)
             # Remove unique acquisition dates
             mask = metadata.duplicated(subset=colNames.remove('id'),
