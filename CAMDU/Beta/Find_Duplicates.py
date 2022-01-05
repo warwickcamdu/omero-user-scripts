@@ -1,10 +1,8 @@
 # import the omero package and the omero.scripts package.
 import omero
 import omero.scripts as scripts
-from omero.gateway import BlitzGateway, ProjectWrapper, DatasetWrapper
-from omero.rtypes import rlong, rstring, robject
-import omero.util.script_utils as script_utils
-import numpy as np
+from omero.gateway import BlitzGateway
+from omero.rtypes import rlong
 import pandas as pd
 '''
 Find duplicate images within same dataset and move to project for deletion
