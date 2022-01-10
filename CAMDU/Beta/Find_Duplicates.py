@@ -41,7 +41,7 @@ def runScript():
 
         for id in script_params["IDs"]:
             dataset = conn.getObject("Dataset", id)
-            colNames = ['id', 'Name', 'acDate', 'sizeX', 'sizeY', 'sizeZ',
+            colNames = ['id', 'fileset', 'Name', 'acDate', 'sizeX', 'sizeY', 'sizeZ',
                         'sizeT', 'sizeC', 'No. Annotate', 'No. ROI']
             metadata = pd.DataFrame(columns=colNames)
             for image in dataset.listChildren():
@@ -58,6 +58,7 @@ def runScript():
                         anns.append(ann)
 
                 image_data = pd.DataFrame(data={'id': image.getId(),
+                                                'fileset': image.getFileset().getId(),
                                                 'Name': image.getName(),
                                                 'acDate': image.getDate(),
                                                 'sizeX': image.getSizeX(),
@@ -69,14 +70,22 @@ def runScript():
                                                 'No. ROI':  len(roiIds)
                                                 }, index=[0])
                 metadata = metadata.append(image_data)
+            # Sort metadata by filesets to images from same fileset are tagged
+            # Otherwise they can't be deleted
+            metadata = metadata.sort_values(by='fileset')
             # Remove unique acquisition dates
-            mask = metadata.duplicated(subset=colNames[1::], keep='first')
+            mask = metadata.duplicated(subset=colNames[2::], keep='first')
             if not metadata[mask].empty:
-                tag_ann = omero.gateway.TagAnnotationWrapper(conn)
-                tag_ann.setValue("CAMDU Duplicate")
-                tag_ann.setDescription(
-                    "Duplicate image to be deleted by CAMDU")
-                tag_ann.save()
+                tag = conn.getObject(
+                    "TagAnnotation",
+                    attributes={"textValue": "CAMDU Duplicate"}
+                    )
+                if not tag:
+                    tag_ann = omero.gateway.TagAnnotationWrapper(conn)
+                    tag_ann.setValue("CAMDU Duplicate")
+                    tag_ann.setDescription(
+                        "Duplicate image to be deleted by CAMDU")
+                    tag_ann.save()
                 for id in metadata[mask]['id']:
                     image = conn.getObject("Image", id)
                     image.linkAnnotation(tag_ann)
