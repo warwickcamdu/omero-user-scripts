@@ -1,10 +1,11 @@
 # import omero
+# Need to pip install cython; pip install findmaxima2d
 import omero.scripts as scripts
 from omero.gateway import BlitzGateway, FileAnnotationWrapper
 from omero.rtypes import rlong, rstring  # , robject
 import omero.util.script_utils as script_utils
 import numpy as np
-from skimage.feature import peak_local_max
+from findmaxima2d import find_maxima, find_local_maxima
 from scipy import optimize
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -28,90 +29,72 @@ def gaussian(x, a, b, c):
     return a*np.exp(-np.power(x - b, 2)/(2*np.power(c, 2)))
 
 
-def fitBeads(peaks, image_stack, size, crop):
+def twoD_Gaussian(xdata_tuple, amplitude, xo, yo, sigma_x, sigma_y, theta, offset):
+    (x, y) = xdata_tuple
+    xo = float(xo)
+    yo = float(yo)
+    a = (np.cos(theta)**2)/(2*sigma_x**2) + (np.sin(theta)**2)/(2*sigma_y**2)
+    b = -(np.sin(2*theta))/(4*sigma_x**2) + (np.sin(2*theta))/(4*sigma_y**2)
+    c = (np.sin(theta)**2)/(2*sigma_x**2) + (np.cos(theta)**2)/(2*sigma_y**2)
+    g = offset + amplitude*np.exp(-(a*((x-xo)**2)
+                                    + 2*b*(x-xo)*(y-yo)+c*((y-yo)**2)))
+    return g.ravel()
+
+
+def fitBeads(peaks, image_stack, image_MIP, size, crop):
     '''
-    Now we will crop out each bead and find the maximum position. Then we fit a
-    Gaussian to each dimension from the maximum value.
+    Fit 2D Gaussian to MIP of each bead and fit z along central pixels
     '''
-    # initialise our array
-    fit = np.zeros((3, 6, len(peaks)))
-    xy_pts = np.linspace(start=0, stop=crop*2, num=crop*2 + 1)
-    z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
-    b = (-np.inf, np.inf)
+    t = 0
+    u = np.linspace(0, crop*2-1, crop*2)
+    x, y = np.meshgrid(u, u)
+    z_pts = np.linspace(0, size['z']-1, size['z'])
+    bxy = [(0, 0, 0, 0, 0, -np.inf, 0),
+           (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf, np.inf)]
+    bz = [(0, 0, 0, 0), (np.inf, np.inf, np.inf, np.inf)]
+    no_beads = 0
+    for k in peaks:
+        no_beads = no_beads + (len(k))
+    # initialise our arrays
+    fitxy = np.zeros((no_beads, 7))
+    fitz = np.zeros((no_beads, 4))
+
     for i in range(len(peaks)):
         # crop out bead
-        sub = image_stack[peaks[i, 0] - crop:peaks[i, 0] + crop + 1,
-                          peaks[i, 1] - crop:peaks[i, 1] + crop + 1, :]
-        # remove background
-        sub = sub - np.mean(sub[0:5, 0:5, 0])
-        # find the maximum pixel
-        maxv = np.amax(sub)
-        maxpx = np.where(sub == maxv)
-
+        sub = image_MIP[peaks[i, 0] - crop:peaks[i, 0] + crop,
+                        peaks[i, 1] - crop:peaks[i, 1] + crop]
+        p1 = [np.max(sub), crop, crop, 2, 2, 0, 100]
+        p2 = [np.max(sub), size['z']/2, 1, 100]
         # find each axis of the max pixel
-        x_gauss = sub[:, maxpx[1], maxpx[2]].transpose()[0]
-        y_gauss = sub[maxpx[0], :, maxpx[2]][0]
-        z_gauss = sub[maxpx[0], maxpx[1], :][0]
+        print(peaks)
+        z_gauss = image_stack[peaks[0][0], peaks[0][1]]
 
         try:
-            # Fit a Gaussian to each axis
-            xpars, xcov = optimize.curve_fit(
-                            f=gaussian, xdata=xy_pts, ydata=x_gauss,
-                            p0=[maxv, maxpx[0][0], 1.2], bounds=b)
-            ypars, ycov = optimize.curve_fit(
-                            f=gaussian, xdata=xy_pts, ydata=y_gauss,
-                            p0=[maxv, maxpx[1][0], 1.2], bounds=b)
+            popt, pcov = optimize.curve_fit(
+                twoD_Gaussian, (x, y), sub.ravel(), p0=p1, bounds=bxy)
             zpars, zcov = optimize.curve_fit(
-                            f=gaussian, xdata=z_pts, ydata=z_gauss,
-                            p0=[maxv, maxpx[2][0], 1.5], bounds=b)
-
+                f=gaussian, xdata=z_pts, ydata=z_gauss, p0=p2, bounds=bz)
             # read the fitted parameters to an array
-            fit[0, 0:3, i] = xpars
-            fit[1, 0:3, i] = ypars
-            fit[2, 0:3, i] = zpars
-
+            fitxy[t, :] = popt
+            fitz[t, :] = zpars
         except RuntimeError:
-            # if algorithm cannot fit, set the fitted parameters to NaN
-            fit[:, :, i] = 'NaN'
+            # if the algorithm cannot fit, instead of breaking we set the fitted parameters to NaN
+            # fit[:,:,i] = 'NaN'
+            fitxy[t, :] = 'NaN'
+            fitz[t, :] = 'NaN'
+        data_fitted = twoD_Gaussian((x, y), *popt)
 
-    # Cleaning up data
-    # Remove peaks that are poor fits, multiple beads etc.
-    # First we remove the times when we weren't able to fit (NaN values).
-    nans = ~np.isnan(np.sum(fit, axis=(0, 1)))
-    fit = fit[:, :, nans]
-    peaks = peaks[nans]
-
-    # Remove if fit is outside the centre by more than a pixel or so
-    centre = (fit[0, 1, :] > crop*0.9)*(fit[0, 1, :] < crop*1.1) * \
-        (fit[1, 1, :] > crop*0.9)*(fit[1, 1, :] < crop*1.1)
-    fit = fit[:, :, centre]
-    peaks = peaks[centre]
-    if len(fit[0, 0, :]) > 10:
-        # Remove beads with a standard deviation outside interquartile range.
-        qx1, qx2 = np.percentile(
-            fit[0, 2, :], 10), np.percentile(fit[0, 2, :], 75)
-        qy1, qy2 = np.percentile(
-            fit[1, 2, :], 10), np.percentile(fit[1, 2, :], 75)
-        qz1, qz2 = np.percentile(
-            fit[2, 2, :], 10), np.percentile(fit[2, 2, :], 75)
-
-        iqr = (fit[0, 2, :] > qx1)*(fit[0, 2, :] < qx2)*(fit[1, 2, :] > qy1) * \
-            (fit[1, 2, :] < qy2)*(fit[2, 2, :] > qz1)*(fit[2, 2, :] < qz2)
-        fit = fit[:, :, iqr]
-        peaks = peaks[iqr]
-
-    return fit, peaks
+    return fitxy, fitz, peaks
 
 
 def getPeaks(image, script_params, conn):
     '''
     Load the image and process
     '''
-    min_distance = script_params["Min_Distance"]
-    threshold = script_params["Threshold"]
+    d = script_params["Min_Distance"]
+    ntol = script_params["Threshold"]
     c = script_params["Channel"]
     t = script_params["Time_Point"]
-    d = 15
 
     size = {}
     size['x'] = image.getSizeX()
@@ -128,9 +111,10 @@ def getPeaks(image, script_params, conn):
     fig0 = plt.figure(figsize=(3, 3))
     plt.imshow(image_MIP)
 
-    # Comparison between image_max and im to find coordinates of local maxima
-    peaks = peak_local_max(image_MIP, min_distance=min_distance,
-                           threshold_abs=threshold)
+    local_max = find_local_maxima(image_MIP)
+    y, x, regs = find_maxima(image_MIP, local_max, ntol)
+    peaks = np.stack((y, x), axis=1)
+
     # If the images show poor peak detection, adjust threshold_abs accordingly.
     # display results
     fig1, axes = plt.subplots(1, 2, sharex=True, sharey=True)
@@ -148,18 +132,15 @@ def getPeaks(image, script_params, conn):
     Flag = np.zeros(len(peaks))
     for i in range(0, len(peaks)):
         # first check if is an edge one
-        # if (0 + d < peaks[i, 0] < 2*r - d) and (0 + d < peaks[i, 1] < 2*r - d):
-        for j in range(0, len(peaks)):
-            # ignore if the same coordinate
-            if i != j:
-                # discard if the peaks are too close together
-                diff_peaks = {}
-                diff_peaks[0] = abs(peaks[i, 0] - peaks[j, 0])
-                diff_peaks[1] = abs(peaks[i, 1] - peaks[j, 1])
-                if (diff_peaks[0] < d) and (diff_peaks[1] < d):
-                    Flag[i] = 1
-        # else:
-        #    Flag[i] = 1
+        if (0 + d < peaks[i, 0] < size['x'] - d) and (0 + d < peaks[i, 1] < size['y'] - d):
+            for j in range(0, len(peaks)):
+                # ignore if the same coordinate
+                if i != j:
+                    # discard if the peaks are too close together
+                    if (abs(peaks[i, 0] - peaks[j, 0]) < d) and (abs(peaks[i, 1] - peaks[j, 1]) < d):
+                        Flag[i] = 1
+        else:
+            Flag[i] = 1
 
     # Remove those peaks.
     peaks = peaks[Flag == 0]
@@ -172,7 +153,7 @@ def getPeaks(image, script_params, conn):
     ax1[1].autoscale(False)
     ax1[1].plot(peaks[:, 1], peaks[:, 0], 'r.')
     ax1[1].set_title('Found peaks')
-    return peaks, image_stack, size, fig0, fig1, fig2
+    return peaks, image_stack, image_MIP, size, fig0, fig1, fig2
 
 
 def getImages(conn, script_params):
@@ -295,11 +276,11 @@ def runScript():
         scripts.Int("Time_Point", optional=False, grouping="05", default=0,
                     description="Enter one time point"),
         scripts.Int("Min_Distance", optional=False, grouping="06",
-                    description="For peak finding algorithm"),
+                    description="For peak finding algorithm, aka d"),
         scripts.Int("Crop", optional=False, grouping="07",
                     description="For peak finding algorithm"),
-        scripts.Int("Threshold", optional=False, grouping="08",
-                    description="For peak finding algorithm"),
+        scripts.Int("Tolerance", optional=False, grouping="08",
+                    description="For local maxima function, aka ntol"),
         # scripts.Float("NA", optional=False, grouping="10", description="NA"),
         # scripts.Float("Wavelength", optional=False, grouping="11",
         #              description="Wavelength"),
@@ -314,12 +295,12 @@ def runScript():
         images = getImages(conn, script_params)
 
         for image in images:
-            peaks, image_stack, size, MipFig, peak1Fig, peak2Fig = getPeaks(
+            peaks, image_stack, image_MIP, size, MipFig, peak1Fig, peak2Fig = getPeaks(
                 image, script_params, conn)
             if not peaks.size:
                 print("No peaks found!")
             else:
-                fit, peaks = fitBeads(peaks, image_stack,
+                fit, peaks = fitBeads(peaks, image_stack, image_MIP,
                                       size, script_params["Crop"])
 
                 Wavelength, NA, pixelSize, acDate = getMetadata(
@@ -370,7 +351,8 @@ def runScript():
 
                     xy_pts = np.linspace(start=0, stop=script_params["Crop"]*2,
                                          num=script_params["Crop"]*2 + 1)
-                    z_pts = np.linspace(start=0, stop=size['z']-1, num=size['z'])
+                    z_pts = np.linspace(
+                        start=0, stop=size['z']-1, num=size['z'])
 
                     # Calculate the residuals
                     xres = x_gauss - gaussian(xy_pts, *xpars)
