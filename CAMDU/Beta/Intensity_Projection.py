@@ -6,7 +6,7 @@ from omero.rtypes import rlong, rstring, robject
 import omero.util.script_utils as script_utils
 import numpy as np
 '''
-Slow, but low memory usage
+Slow, low memory usage
 '''
 
 
