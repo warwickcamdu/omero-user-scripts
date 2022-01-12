@@ -1,6 +1,15 @@
 OMERO User Scripts
 ==================
 
+Intensity_Projection.py: For making intensity projections for either the whole
+images or for ROIs.
+
+PSF_Distiller.py: Quality control for microscopes. Takes a bead image and
+outputs a PDF attached to the image to summaries the results and a .csv file
+attached to the project storing the results over time.
+
+===================
+
 Installation
 ------------
 
@@ -95,26 +104,25 @@ It will be used to help generate a landing page and links for your work.
 Please modify **all** values on **each** branch to describe your scripts.
 
 ###### Repository name ######
-Base OMERO User Scripts repository
+CAMDU Scripts
 
 ###### Minimum version ######
-4.4
+5.2
 
 ###### Maximum version ######
-5.0
+5.6
 
 ###### Owner(s) ######
-The OME Team
+The CAMDU Team
 
 ###### Institution ######
-Open Microscopy Environment
+University of Warwick
 
 ###### URL ######
-http://openmicroscopy.org/info/scripts
+[warwick.ac.uk/camdu](https://warwick.ac.uk/fac/sci/med/research/biomedical/facilities/camdu/)
 
 ###### Email ######
-ome-devel@lists.openmicroscopy.org.uk
+camdu@warwick.ac.uk
 
 ###### Description ######
-Example script repository to be cloned, modified, and extended.
-This text may be used on OME resources to explain your scripts.
+Scripts developed by the Computing and Advanced Microscopy Development Unit at the University of Warwick.
