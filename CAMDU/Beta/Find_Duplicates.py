@@ -76,11 +76,11 @@ def runScript():
             # Remove unique acquisition dates
             mask = metadata.duplicated(subset=colNames[2::], keep='first')
             if not metadata[mask].empty:
-                tag = conn.getObject(
+                tag_ann = conn.getObject(
                     "TagAnnotation",
                     attributes={"textValue": "CAMDU Duplicate"}
                     )
-                if not tag:
+                if not tag_ann:
                     tag_ann = omero.gateway.TagAnnotationWrapper(conn)
                     tag_ann.setValue("CAMDU Duplicate")
                     tag_ann.setDescription(
