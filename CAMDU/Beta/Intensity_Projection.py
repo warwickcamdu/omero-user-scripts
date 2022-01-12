@@ -6,7 +6,7 @@ from omero.rtypes import rlong, rstring, robject
 import omero.util.script_utils as script_utils
 import numpy as np
 '''
-Slow, but low memory usage
+Slow, low memory usage
 '''
 
 
@@ -73,55 +73,64 @@ def getRoiShape(s):
     return shape
 
 
-def planeGenerator(new_Z, C, T, Z, pixels, shape=None):
+def planeGenerator(new_Z, C, T, Z, pixels, projection, shape=None):
     """
     Set up generator of 2D numpy arrays, each of which is a MIP
     To be passed to createImage method so must be order z, c, t
     """
-    for z in range(new_Z):
+    for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
         for c in range(C):
             for t in range(T):
-                for i in range(Z[0], Z[1]):
-                    plane = pixels.getPlane(i, c, t)
+                for eachz in range(Z[0]-1, Z[1]):
+                    plane = pixels.getPlane(eachz, c, t)
                     if shape is not None:
-                        plane = plane[shape['x']:shape['x']+shape['w'],
-                                      shape['y']:shape['y']+shape['h']]
-                    if 'new_plane' not in locals():
+                        plane = plane[shape['y']:shape['y']+shape['h'],
+                                      shape['x']:shape['x']+shape['w']]
+                    if eachz == Z[0]-1:
                         new_plane = plane
                     else:
-                        # Replace pixel values if larger
-                        new_plane = np.where(np.greater(plane, new_plane),
-                                             plane, new_plane)
+                        if projection == 'Maximum':
+                            # Replace pixel values if larger
+                            new_plane = np.where(np.greater(
+                                plane, new_plane), plane, new_plane)
+                        elif projection == 'Minimum':
+                            new_plane = np.where(
+                                np.less(plane, new_plane), plane, new_plane)
                 yield new_plane
 
 
 def runScript():
     dataTypes = [rstring('Dataset'), rstring('Image')]
+    projections = [rstring('Maximum'), rstring('Minimum')]
     client = scripts.client(
-        "Max_Projection.py", """Creates a new image of the maximum intensity \
-        projection in Z from an existing image""",
+        "Intensity_Projection.py", """Creates a new image of the selected \
+        intensity projection in Z from an existing image""",
         scripts.String(
             "Data_Type", optional=False, grouping="01", values=dataTypes,
             default="Image"),
         scripts.List(
             "IDs", optional=False, grouping="02",
             description="""IDs of the images to project""").ofType(rlong(0)),
+        scripts.String(
+            "Method", grouping="03",
+            description="""Type of projection to run""", values=projections,
+            default='Maximum'),
         scripts.Int(
-            "First_Z", grouping="03", min=1,
+            "First_Z", grouping="04", min=1,
             description="First Z plane to project, default is first plane"),
         scripts.Int(
-            "Last_Z", grouping="03", min=1,
+            "Last_Z", grouping="05", min=1,
             description="Last Z plane to project, default is last plane"),
         scripts.Bool(
-            "Apply_to_ROIs_only", grouping="04", default=False,
+            "Apply_to_ROIs_only", grouping="06", default=False,
             description="Apply maximum projection only to rectangular ROIs, \
             if not rectangular ROIs found, image will be skipped"),
         scripts.String(
-            "Dataset_Name", grouping="05",
+            "Dataset_Name", grouping="07",
             description="To save projections to new dataset, enter it's name. \
             To save projections to existing dataset, leave blank"),
 
-        version="0.1",
+        version="0.3",
         authors=["Laura Cooper", "CAMDU"],
         institutions=["University of Warwick"],
         contact="camdu@warwick.ac.uk"
@@ -143,7 +152,6 @@ def runScript():
                 dataset = new_dataset
             else:
                 dataset = image.getParent()
-
             Z, C, T = image.getSizeZ(), image.getSizeC(), image.getSizeT()
             if "First_Z" in script_params:
                 Z1 = [script_params["First_Z"], Z]
@@ -163,30 +171,31 @@ def runScript():
                             for s in roi.copyShapes():
                                 if type(s) == omero.model.RectangleI:
                                     shape = getRoiShape(s)
-                                    name = "%s_%s_MAX" % (image.getName(),
-                                                          s.getId().getValue())
-                                    desc = ("Maximum intensity Z projection of\
+                                    name = "%s_%s_%s" % (image.getName(),
+                                                         s.getId().getValue(),
+                                                         script_params["Method"])
+                                    desc = ("%s intensity Z projection of\
                                             Image ID: %s, shape ID: %s"
-                                            % (image.getId(),
+                                            % (script_params["Method"],
+                                               image.getId(),
                                                s.getId().getValue()))
-                                    newImage = conn.createImageFromNumpySeq(
-                                        planeGenerator(1, C, T, Z1, pixels,
-                                                       shape), name, 1, C, T,
-                                        description=desc, dataset=dataset)
-                                    copyMetadata(conn, newImage, image)
-                                    client.setOutput("New Image",
-                                                     robject(newImage._obj))
-                    else:
-                        shape = None
-                        name = "%s_MAX" % image.getName()
-                        desc = ("Maximum intensity Z projection of Image ID: \
-                                 %s" % image.getId())
-                        newImage = conn.createImageFromNumpySeq(
-                            planeGenerator(1, C, T, Z1, pixels,
-                                           shape), name, 1, C, T,
-                            description=desc, dataset=dataset)
-                        copyMetadata(conn, newImage, image)
-                        client.setOutput("New Image", robject(newImage._obj))
+                else:
+                    shape = {}
+                    shape['x'] = 0
+                    shape['y'] = 0
+                    shape['w'] = image.getSizeX()
+                    shape['h'] = image.getSizeY()
+                    name = "%s_%s" % (
+                        image.getName(), script_params["Method"])
+                    desc = ("%s intensity Z projection of Image ID: \
+                             %s" % (script_params["Method"],
+                                    image.getId()))
+                newImage = conn.createImageFromNumpySeq(
+                    planeGenerator(1, C, T, Z1, pixels,
+                                   script_params["Method"], shape),
+                    name, 1, C, T, description=desc, dataset=dataset)
+                copyMetadata(conn, newImage, image)
+                client.setOutput("New Image", robject(newImage._obj))
 
     finally:
         # Cleanup
