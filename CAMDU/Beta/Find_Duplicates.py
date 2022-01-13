@@ -59,10 +59,7 @@ def runScript():
                         anns.append(ann)
 
                 image_data = pd.DataFrame(data={'id': image.getId(),
-<<<<<<< HEAD
-=======
                                                 'fileset': image.getFileset().getId(),
->>>>>>> Find_Duplicates
                                                 'Name': image.getName(),
                                                 'acDate': image.getDate(),
                                                 'sizeX': image.getSizeX(),
@@ -74,16 +71,6 @@ def runScript():
                                                 'No. ROI':  len(roiIds)
                                                 }, index=[0])
                 metadata = metadata.append(image_data)
-<<<<<<< HEAD
-            # Remove unique acquisition dates
-            mask = metadata.duplicated(subset=colNames[1::], keep='first')
-            if not metadata[mask].empty:
-                tag_ann = omero.gateway.TagAnnotationWrapper(conn)
-                tag_ann.setValue("CAMDU Duplicate")
-                tag_ann.setDescription(
-                    "Duplicate image to be deleted by CAMDU")
-                tag_ann.save()
-=======
             # Sort metadata by filesets to images from same fileset are tagged
             # Otherwise they can't be deleted
             metadata = metadata.sort_values(by='fileset')
@@ -100,7 +87,6 @@ def runScript():
                     tag_ann.setDescription(
                         "Duplicate image to be deleted by CAMDU")
                     tag_ann.save()
->>>>>>> Find_Duplicates
                 for id in metadata[mask]['id']:
                     image = conn.getObject("Image", id)
                     image.linkAnnotation(tag_ann)
