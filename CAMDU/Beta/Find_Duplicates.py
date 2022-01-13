@@ -61,7 +61,7 @@ def runScript():
                 image_data = pd.DataFrame(data={'id': image.getId(),
                                                 'fileset': image.getFileset().getId(),
                                                 'Name': image.getName(),
-                                                'acDate': image.getDate(),
+                                                'acDate': image.getAcquisitionDate(),
                                                 'sizeX': image.getSizeX(),
                                                 'sizeY': image.getSizeY(),
                                                 'sizeZ': image.getSizeZ(),
