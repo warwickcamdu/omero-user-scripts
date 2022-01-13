@@ -41,9 +41,8 @@ def runScript():
 
         for id in script_params["IDs"]:
             dataset = conn.getObject("Dataset", id)
-
-            colNames = ['id', 'fileset', 'Name', 'acDate', 'sizeX', 'sizeY', 'sizeZ',
-                        'sizeT', 'sizeC', 'No. Annotate', 'No. ROI']
+            colNames = ['id', 'fileset', 'Name', 'acDate', 'sizeX', 'sizeY',
+                        'sizeZ', 'sizeT', 'sizeC', 'No. Annotate', 'No. ROI']
             metadata = pd.DataFrame(columns=colNames)
             for image in dataset.listChildren():
                 findRois = roi_service.findByImage(image.getId(), None)
@@ -58,18 +57,18 @@ def runScript():
                     else:
                         anns.append(ann)
 
-                image_data = pd.DataFrame(data={'id': image.getId(),
-                                                'fileset': image.getFileset().getId(),
-                                                'Name': image.getName(),
-                                                'acDate': image.getAcquisitionDate(),
-                                                'sizeX': image.getSizeX(),
-                                                'sizeY': image.getSizeY(),
-                                                'sizeZ': image.getSizeZ(),
-                                                'sizeT': image.getSizeT(),
-                                                'sizeC': image.getSizeC(),
-                                                'No. Annotate': len(anns),
-                                                'No. ROI':  len(roiIds)
-                                                }, index=[0])
+                image_data = pd.DataFrame(
+                    data={'id': image.getId(),
+                          'fileset': image.getFileset().getId(),
+                          'Name': image.getName(),
+                          'acDate': image.getAcquisitionDate(),
+                          'sizeX': image.getSizeX(),
+                          'sizeY': image.getSizeY(),
+                          'sizeZ': image.getSizeZ(),
+                          'sizeT': image.getSizeT(),
+                          'sizeC': image.getSizeC(),
+                          'No. Annotate': len(anns),
+                          'No. ROI':  len(roiIds)}, index=[0])
                 metadata = metadata.append(image_data)
             # Sort metadata by filesets to images from same fileset are tagged
             # Otherwise they can't be deleted
@@ -77,6 +76,7 @@ def runScript():
             # Remove unique acquisition dates
             mask = metadata.duplicated(subset=colNames[2::], keep='first')
             if not metadata[mask].empty:
+                log('Duplicates found')
                 tag_ann = conn.getObject(
                     "TagAnnotation",
                     attributes={"textValue": "CAMDU Duplicate"}
@@ -90,6 +90,8 @@ def runScript():
                 for id in metadata[mask]['id']:
                     image = conn.getObject("Image", id)
                     image.linkAnnotation(tag_ann)
+            else:
+                log('No duplicates found')
     finally:
         # Cleanup
         client.closeSession()
