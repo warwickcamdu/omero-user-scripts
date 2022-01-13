@@ -18,6 +18,8 @@ def filter_comments(a):
     if isinstance(a, str):
         if a.startswith('regex'):
             return False
+        else:
+            return True
     else:
         return True
 
