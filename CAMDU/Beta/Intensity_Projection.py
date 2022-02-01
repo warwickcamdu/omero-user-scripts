@@ -80,7 +80,7 @@ def planeGenerator(new_Z, C, T, Z, pixels, projection, shape=None):
     """
     for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
         for c in range(C):
-            for t in range(T):
+            for t in range(Z[0]-1, Z[1]):
                 for eachz in range(Z[0]-1, Z[1]):
                     plane = pixels.getPlane(eachz, c, t)
                     if shape is not None:
@@ -121,16 +121,22 @@ def runScript():
         scripts.Int(
             "Last_Z", grouping="05", min=1,
             description="Last Z plane to project, default is last plane"),
+        scripts.Int(
+            "First_T", grouping="06", min=1,
+            description="First T plane to project, default is first plane"),
+        scripts.Int(
+            "Last_T", grouping="07", min=1,
+            description="Last T plane to project, default is last plane"),
         scripts.Bool(
-            "Apply_to_ROIs_only", grouping="06", default=False,
+            "Apply_to_ROIs_only", grouping="08", default=False,
             description="Apply maximum projection only to rectangular ROIs, \
             if not rectangular ROIs found, image will be skipped"),
         scripts.String(
-            "Dataset_Name", grouping="07",
+            "Dataset_Name", grouping="09",
             description="To save projections to new dataset, enter it's name. \
             To save projections to existing dataset, leave blank"),
 
-        version="0.3",
+        version="0.4",
         authors=["Laura Cooper", "CAMDU"],
         institutions=["University of Warwick"],
         contact="camdu@warwick.ac.uk"
@@ -159,6 +165,12 @@ def runScript():
                 Z1 = [1, Z]
             if "Last_Z" in script_params:
                 Z1[1] = script_params["Last_Z"]
+            if "First_T" in script_params:
+                T1 = [script_params["First_T"], T]
+            else:
+                T1 = [1, T]
+            if "Last_T" in script_params:
+                T1[1] = script_params["Last_T"]
             # Skip image if Z dimension is 1 or if given Z range is less than 1
             if (Z != 1) or ((Z1[1]-Z1[0]) >= 1):
                 # Get plane as numpy array
@@ -191,9 +203,9 @@ def runScript():
                              %s" % (script_params["Method"],
                                     image.getId()))
                 newImage = conn.createImageFromNumpySeq(
-                    planeGenerator(1, C, T, Z1, pixels,
+                    planeGenerator(1, C, T1, Z1, pixels,
                                    script_params["Method"], shape),
-                    name, 1, C, T, description=desc, dataset=dataset)
+                    name, 1, C, T1[1]-T1[0], description=desc, dataset=dataset)
                 copyMetadata(conn, newImage, image)
                 client.setOutput("New Image", robject(newImage._obj))
 
