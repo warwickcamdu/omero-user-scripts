@@ -99,6 +99,13 @@ def planeGenerator(new_Z, C, T, Z, pixels, projection, shape=None):
                 yield new_plane
 
 
+def create_new_dataset(conn, name):
+    new_dataset = DatasetWrapper(conn, omero.model.DatasetI())
+    new_dataset.setName(name)
+    new_dataset.save()
+    return new_dataset
+
+
 def runScript():
     dataTypes = [rstring('Dataset'), rstring('Image')]
     projections = [rstring('Maximum'), rstring('Minimum')]
@@ -145,12 +152,12 @@ def runScript():
         conn = BlitzGateway(client_obj=client)
         script_params = client.getInputs(unwrap=True)
         images = getImages(conn, script_params)
+        user = conn.getUser()
 
         # Create new dataset if Dataset_Name is defined
         if "Dataset_Name" in script_params:
-            new_dataset = DatasetWrapper(conn, omero.model.DatasetI())
-            new_dataset.setName(script_params["Dataset_Name"])
-            new_dataset.save()
+            new_dataset = create_new_dataset(conn,
+                                             script_params["Dataset_Name"])
 
         for image in images:
             # If Dataset_Name empty user existing, use new one if not.
@@ -158,6 +165,8 @@ def runScript():
                 dataset = new_dataset
             else:
                 dataset = image.getParent()
+                if dataset.getOwnerOmeName() != user:
+                    dataset = create_new_dataset(conn, dataset.getName())
             Z, C, T = image.getSizeZ(), image.getSizeC(), image.getSizeT()
             if "First_Z" in script_params:
                 Z1 = [script_params["First_Z"], Z]
