@@ -177,13 +177,13 @@ def runScript():
                     dataset = create_new_dataset(conn, dataset.getName())
             Z, C, T = image.getSizeZ(), image.getSizeC(), image.getSizeT()
             if "First_Z" in script_params:
-                Z1 = [script_params["First_Z"], Z]
+                Z1 = [script_params["First_Z"]-1, Z]
             else:
                 Z1 = [0, Z]
             if "Last_Z" in script_params:
                 Z1[1] = script_params["Last_Z"]
             if "First_T" in script_params:
-                T1 = [script_params["First_T"], T]
+                T1 = [script_params["First_T"]-1, T]
             else:
                 T1 = [0, T]
             if "Last_T" in script_params:
