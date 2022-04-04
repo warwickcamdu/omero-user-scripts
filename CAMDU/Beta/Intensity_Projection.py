@@ -80,7 +80,7 @@ def planeGenerator(new_Z, C, T, Z, pixels, projection, shape=None):
     """
     for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
         for c in range(C):
-            for t in range(Z[0]-1, Z[1]):
+            for t in range(T[0]-1, T[1]):
                 for eachz in range(Z[0]-1, Z[1]):
                     plane = pixels.getPlane(eachz, c, t)
                     if shape is not None:
