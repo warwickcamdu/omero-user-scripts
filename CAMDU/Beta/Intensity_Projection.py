@@ -87,15 +87,9 @@ def planeGenerator(new_Z, C, T, Z, raw_pixel_store, pixels, projection, shape=No
     """
     for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
         for c in range(C):
-<<<<<<< HEAD
-            for t in range(T[0]-1, T[1]):
-                for eachz in range(Z[0]-1, Z[1]):
-                    plane = pixels.getPlane(eachz, c, t)
-=======
             for t in range(T[0], T[1]):
                 for eachz in range(Z[0], Z[1]):
                     plane = get_plane(raw_pixel_store, pixels, eachz, c, t)
->>>>>>> IntProjSpeed
                     if shape is not None:
                         plane = plane[shape['y']:shape['y']+shape['h'],
                                       shape['x']:shape['x']+shape['w']]
