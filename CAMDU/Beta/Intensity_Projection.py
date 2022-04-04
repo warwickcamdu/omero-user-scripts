@@ -150,7 +150,7 @@ def runScript():
             description="To save projections to new dataset, enter it's name. \
             To save projections to existing dataset, leave blank"),
 
-        version="0.4",
+        version="0.5",
         authors=["Laura Cooper", "CAMDU"],
         institutions=["University of Warwick"],
         contact="camdu@warwick.ac.uk"
@@ -160,7 +160,7 @@ def runScript():
         conn = BlitzGateway(client_obj=client)
         script_params = client.getInputs(unwrap=True)
         images = getImages(conn, script_params)
-        user = conn.getUser()
+        user = conn.getUser().getName()
 
         # Create new dataset if Dataset_Name is defined
         if "Dataset_Name" in script_params:
@@ -193,8 +193,8 @@ def runScript():
                 # Get plane as numpy array
                 raw_pixel_store = conn.c.sf.createRawPixelsStore()
                 query_service = conn.getQueryService()
-                query_string = "select p from Pixels p join fetch p.image i join fetch p.pixelsType pt where i.id='%d'" % int(
-                    script_params["IDs"][0])
+                query_string = "select p from Pixels p join fetch p.image i "\
+                    "join fetch p.pixelsType pt where i.id='%d'" % image.getId()
                 pixels = query_service.findByQuery(query_string, None)
                 if script_params["Apply_to_ROIs_only"]:
                     roi_service = conn.getRoiService()
