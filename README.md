@@ -10,6 +10,9 @@ attached to the project storing the results over time.
 
 Find_Duplicates.py: Find duplicate images and tag them so they can be deleted.
 
+Find_in_focus_plane.py: Find's the Z plane with the highest standard deviation
+from the first time step of a series)
+
 ===================
 
 Installation
