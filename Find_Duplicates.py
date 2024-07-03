@@ -79,7 +79,7 @@ def runScript():
                           'sizeC': image.getSizeC(),
                           'No. Annotate': len(anns),
                           'No. ROI':  len(roiIds)}, index=[0])
-                metadata = metadata.append(image_data)
+                metadata = metadata._append(image_data)
             # Sort metadata by filesets to images from same fileset are tagged
             # Otherwise they can't be deleted
             metadata = metadata.sort_values(by='fileset')
