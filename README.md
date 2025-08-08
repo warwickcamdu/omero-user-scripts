@@ -13,6 +13,8 @@ Find_Duplicates.py: Find duplicate images and tag them so they can be deleted.
 Find_in_focus_plane.py: Find's the Z plane with the highest standard deviation
 from the first time step of a series)
 
+Specify_ROI.py: Input coordinates to create rectangular ROI on image
+
 ===================
 
 Installation
