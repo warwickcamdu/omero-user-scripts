@@ -80,30 +80,53 @@ def get_plane(raw_pixel_store, pixels, the_z, the_c, the_t):
     return script_utils.download_plane(raw_pixel_store, pixels, the_z, the_c, the_t)
 
 
-def planeGenerator(new_Z, C, T, Z, raw_pixel_store, pixels, projection, shape=None):
+#def planeGenerator(new_Z, C, T, Z, raw_pixel_store, pixels, projection, shape=None):
+def planeGenerator(clist, T, Z, pixels, projection, shape=None):
     """
     Set up generator of 2D numpy arrays, each of which is a MIP
     To be passed to createImage method so must be order z, c, t
     """
-    for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
-        for c in range(C):
-            for t in range(T[0], T[1]):
-                for eachz in range(Z[0], Z[1]):
-                    plane = get_plane(raw_pixel_store, pixels, eachz, c, t)
-                    if shape is not None:
-                        plane = plane[shape['y']:shape['y']+shape['h'],
-                                      shape['x']:shape['x']+shape['w']]
-                    if eachz == Z[0]:
-                        new_plane = plane
-                    else:
-                        if projection == 'Maximum':
-                            # Replace pixel values if larger
-                            new_plane = np.where(np.greater(
-                                plane, new_plane), plane, new_plane)
-                        elif projection == 'Minimum':
-                            new_plane = np.where(
-                                np.less(plane, new_plane), plane, new_plane)
-                yield new_plane
+    for c in clist:
+        for t in range(T[0], T[1]):
+        # get Z-stack...
+            print(f"C: {c}, T: {t}")
+            zctList = [(z,c,t) for z in range(Z[0], Z[1])]
+            # planes is a generator - no data loaded yet...
+            planes = pixels.getPlanes(zctList)
+            data = []
+            for p in planes:
+                # could add a sleep here if you want to reduce load on server?
+                data.append(p)
+            z_stack = np.stack(data, axis=0)
+            if shape is not None:
+                z_stack = z_stack[:,shape['y']:shape['y']+shape['h'],
+                              shape['x']:shape['x']+shape['w']]
+            # return the Max-Intensity projection for C and T
+            if projection == 'Maximum':
+                yield np.amax(z_stack, axis=0)
+            elif projection == 'Minimum':
+                yield np.amin(z_stack, axis=0)
+
+
+    #for z in range(new_Z):  # createImageFromNumpySeq expects Z, C, T order
+    #    for c in range(C):
+    #        for t in range(T[0], T[1]):
+    #            for eachz in range(Z[0], Z[1]):
+    #                plane = get_plane(raw_pixel_store, pixels, eachz, c, t)
+    #                if shape is not None:
+    #                    plane = plane[shape['y']:shape['y']+shape['h'],
+    #                                  shape['x']:shape['x']+shape['w']]
+    #                if eachz == Z[0]:
+    #                    new_plane = plane
+    #                else:
+    #                    if projection == 'Maximum':
+    #                        # Replace pixel values if larger
+    #                        new_plane = np.where(np.greater(
+    #                            plane, new_plane), plane, new_plane)
+    #                    elif projection == 'Minimum':
+    #                        new_plane = np.where(
+    #                            np.less(plane, new_plane), plane, new_plane)
+    #            yield new_plane
 
 
 def create_new_dataset(conn, name):
@@ -144,7 +167,7 @@ def runScript():
         scripts.Bool(
             "Apply_to_ROIs_only", grouping="08", default=False,
             description="Apply maximum projection only to rectangular ROIs, \
-            if not rectangular ROIs found, image will be skipped"),
+            if no rectangular ROIs found, image will be skipped"),
         scripts.String(
             "Dataset_Name", grouping="09",
             description="To save projections to new dataset, enter it's name. \
@@ -176,6 +199,9 @@ def runScript():
                 if dataset.getOwnerOmeName() != user:
                     dataset = create_new_dataset(conn, dataset.getName())
             Z, C, T = image.getSizeZ(), image.getSizeC(), image.getSizeT()
+
+            clist = range(C)
+            
             if "First_Z" in script_params:
                 Z1 = [script_params["First_Z"]-1, Z]
             else:
@@ -190,12 +216,13 @@ def runScript():
                 T1[1] = script_params["Last_T"]
             # Skip image if Z dimension is 1 or if given Z range is less than 1
             if (Z != 1) or ((Z1[1]-Z1[0]) >= 1):
+                pixels = image.getPrimaryPixels()
                 # Get plane as numpy array
-                raw_pixel_store = conn.c.sf.createRawPixelsStore()
-                query_service = conn.getQueryService()
-                query_string = "select p from Pixels p join fetch p.image i "\
-                    "join fetch p.pixelsType pt where i.id='%d'" % image.getId()
-                pixels = query_service.findByQuery(query_string, None)
+                #raw_pixel_store = conn.c.sf.createRawPixelsStore()
+                #query_service = conn.getQueryService()
+                #query_string = "select p from Pixels p join fetch p.image i "\
+                #    "join fetch p.pixelsType pt where i.id='%d'" % image.getId()
+                #pixels = query_service.findByQuery(query_string, None)
                 if script_params["Apply_to_ROIs_only"]:
                     roi_service = conn.getRoiService()
                     result = roi_service.findByImage(image.getId(), None)
@@ -224,8 +251,9 @@ def runScript():
                              %s" % (script_params["Method"],
                                     image.getId()))
                 newImage = conn.createImageFromNumpySeq(
-                    planeGenerator(1, C, T1, Z1, raw_pixel_store, pixels,
-                                   script_params["Method"], shape),
+                #    planeGenerator(1, C, T1, Z1, raw_pixel_store, pixels,
+                #                   script_params["Method"], shape),
+                    planeGenerator(clist, T1, Z1, pixels,script_params["Method"], shape),
                     name, 1, C, T1[1]-T1[0], description=desc, dataset=dataset)
                 copyMetadata(conn, newImage, image)
                 client.setOutput("New Image", robject(newImage._obj))
